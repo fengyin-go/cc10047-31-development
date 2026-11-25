@@ -4,8 +4,10 @@
 """
 from __future__ import annotations
 
+import copy
 from typing import Any
 
+from app.orphan_seed import AUX_SEED_ROWS
 from app.seed import SEED_ROWS
 
 
@@ -14,9 +16,21 @@ class Store:
         self._tables: dict[str, list[dict[str, Any]]] = {
             name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
         }
+        # 辅助数据集（孤立文件清单、清理回收范围、审计处置台账）走独立命名空间，
+        # 不进入 18 个业务模块的概览统计和通用资源路由。
+        # 辅助数据含嵌套的引用证据和历史，必须深拷贝，避免运行期改动写回种子常量。
+        self._aux: dict[str, list[dict[str, Any]]] = {
+            name: copy.deepcopy(rows) for name, rows in AUX_SEED_ROWS.items()
+        }
 
     def module_names(self) -> list[str]:
         return sorted(self._tables)
+
+    def aux(self, name: str) -> list[dict[str, Any]]:
+        return self._aux.setdefault(name, [])
+
+    def aux_names(self) -> list[str]:
+        return sorted(self._aux)
 
     def rows(self, module: str) -> list[dict[str, Any]]:
         return self._tables.setdefault(module, [])

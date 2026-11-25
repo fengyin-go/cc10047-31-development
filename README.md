@@ -68,6 +68,38 @@ npm run dev
 | 格式迁移 | `iceberg_migrate` | 迁移计划 | 计划标识、源格式、目标格式 |
 | 表目录同步 | `table_catalog` | 同步记录 | 记录标识、来源Catalog、目标Catalog |
 | 湖仓审计 | `lake_audit` | 审计报告 | 报告标识、审计范围、审计时间 |
+| 孤立文件清单 | `orphan-files`（独立页面） | 疑似孤立文件 | 文件名、目录类型、湖表、对象版本 |
+
+## 孤立数据文件清单
+
+`/orphan-files` 是湖仓审计的明细工作台，补齐“逐个查询疑似孤立文件”的能力：
+
+- 按目录类型（生产目录 / 测试目录）、湖表、对象版本、状态和文件名筛选；
+  同名文件在不同目录下是两条独立记录，分别核查、分别处置。
+- 每条记录展示三类引用证据（Delta 提交日志、快照清单、Catalog 条目）的核查结果，
+  缺哪条证据直接在清单里标出，详情里保留引用变更历史和处置历史。
+- 清理选择支持两种口径：
+  - `按文件安全子集`：只释放仍无引用的文件，新增引用的文件转受保护；
+  - `整批重新确认`：执行前发现任一文件新增引用就整批冻结，等待确认后逐个复核。
+- 释放结果按文件写入 `湖仓审计处置台账`，记录本次采用的范围与缺失证据；
+  同一选择并发恢复只按文件计一次释放，清理中断时未处理文件保持可读。
+- 历史清理作业可从该清单选择回收范围（`/api/orphan-files/vacuum-jobs/{id}/cleanup`），
+  也可在页面的“历史清理回收范围”区块预览并执行。
+
+主要接口都在 `/api/orphan-files` 下，固定路径先于通用 `/api/{module}` 注册：
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /api/orphan-files` | 按目录、湖表、对象版本筛选清单 |
+| `GET /api/orphan-files/{id}` | 单文件引用证据与处置历史 |
+| `POST /api/orphan-files/{id}/restore-reference` | 目录补发引用 |
+| `POST /api/orphan-files/selections` | 提交清理选择（`mode=safe_subset|whole_batch`） |
+| `GET /api/orphan-files/selections/{id}` | 执行详情（范围、释放/保护/待核） |
+| `POST /api/orphan-files/selections/{id}/reconfirm` | 整批重新确认 |
+| `GET /api/orphan-files/ledger` | 湖仓审计处置台账 |
+| `GET /api/orphan-files/{id}/release-count` | 按文件核对释放次数 |
+
+演示数据在 `backend/app/orphan_seed.py`，只走辅助命名空间，不混入 18 个业务模块统计。
 
 ## 约定
 

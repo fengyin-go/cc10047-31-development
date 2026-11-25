@@ -28,18 +28,46 @@ class LakeAuditService(BaseModuleService):
 
             return {"ok": False, "message": f"审计报告 {entry_id} 不存在"}        # 返回写入处理结果，含聚合校验和记录批次信息
 
+        # 孤儿文件数直接取孤立数据文件清单，避免报告数字和明细脱节。
+        from app.services.orphan_file import orphan_files
+
+        summary = orphan_files.summary()
+        ledger_count = summary["ledger_count"]
         return {
             "ok": True,
             "report_id": entry.get("报告标识"),
             "scope": entry.get("审计范围"),
             "tables_checked": self._safe_int(entry.get("检查表数"), 10),
             "abnormal_tables": self._safe_int(entry.get("异常表数"), 2),
-            "orphan_files": self._safe_int(entry.get("孤儿文件"), 5),
+            "orphan_files": summary["total"],
+            "orphan_suspect": summary["suspect"],
+            "orphan_protected": summary["protected"],
+            "orphan_pending": summary["pending_reconfirm"],
+            "disposition_ledger": ledger_count,
             "verdict": entry.get("审计结论", "需修复"),
             "recommendations": [
-                "清理孤儿文件",
+                "逐个回查孤立文件的引用证据",
+                "按文件安全子集清理仍无引用的文件",
                 "统一压缩格式为zstd",
-                "修复Schema不一致表",
             ],
             "audit_duration_seconds": 30,
+        }
+
+    def domain_audit_orphans(self, report_id: str | None = None) -> dict[str, Any]:
+        """审计孤立数据文件：按目录/湖表/对象版本汇总，并列出每条缺失的引用证据。"""
+        from app.services.orphan_file import orphan_files
+
+        items, _ = orphan_files.list_entries(size=1000)
+        if report_id:
+            items = [item for item in items if item.get("审计报告") == report_id]
+        summary = orphan_files.summary(report_id)
+        return {
+            "ok": True,
+            "report_id": report_id,
+            "summary": summary,
+            "files": items,
+            "missing_evidence": {
+                str(item.get("id")): item.get("missing_evidence_text") for item in items
+            },
+            "scope_label": "生产目录与测试目录同名文件分别核查",
         }
